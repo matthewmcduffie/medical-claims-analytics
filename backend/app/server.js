@@ -2,6 +2,7 @@ const Fastify = require("fastify");
 const pool = require("./db");
 
 const fastify = Fastify({ logger: true });
+
 fastify.register(require("@fastify/cors"), {
   origin: "http://localhost:5173"
 });
@@ -14,7 +15,8 @@ const ALLOWED_SORT_FIELDS = [
 ];
 
 /**
- * Helper: build WHERE clause safely
+ * Helper: build WHERE clause with optional filters
+ * Used when NO base condition is required
  */
 function buildFilters(query, params) {
   const conditions = [];
@@ -53,12 +55,52 @@ function buildFilters(query, params) {
 }
 
 /**
+ * Helper: build WHERE clause WITH a required base condition
+ * Prevents invalid SQL when no filters are provided
+ */
+function buildWhereWithBase(query, params, baseCondition) {
+  const conditions = [baseCondition];
+
+  if (query.start_date) {
+    conditions.push("service_date >= ?");
+    params.push(query.start_date);
+  }
+
+  if (query.end_date) {
+    conditions.push("service_date <= ?");
+    params.push(query.end_date);
+  }
+
+  if (query.payer_type) {
+    conditions.push("payer_type = ?");
+    params.push(query.payer_type);
+  }
+
+  if (query.payer_plan) {
+    conditions.push("payer_plan = ?");
+    params.push(query.payer_plan);
+  }
+
+  if (query.cpt) {
+    conditions.push("cpt_hcpcs_code = ?");
+    params.push(query.cpt);
+  }
+
+  if (query.appeal_eligible) {
+    conditions.push("appeal_eligible = ?");
+    params.push(query.appeal_eligible);
+  }
+
+  return `WHERE ${conditions.join(" AND ")}`;
+}
+
+/**
  * Health check
  */
 fastify.get("/health", async () => ({ status: "ok" }));
 
 /**
- * Summary: billed vs paid vs missing
+ * Summary: billed vs allowed vs paid vs missing
  */
 fastify.get("/api/summary/missing-money", async (request) => {
   const params = [];
@@ -85,7 +127,11 @@ fastify.get("/api/summary/missing-money", async (request) => {
  */
 fastify.get("/api/summary/recoverable", async (request) => {
   const params = [];
-  const whereClause = buildFilters(request.query, params);
+  const whereClause = buildWhereWithBase(
+    request.query,
+    params,
+    "paid_amount < allowed_amount"
+  );
 
   const [rows] = await pool.query(
     `
@@ -95,7 +141,6 @@ fastify.get("/api/summary/recoverable", async (request) => {
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
     ${whereClause}
-      AND paid_amount < allowed_amount
     GROUP BY appeal_eligible
     `,
     params
@@ -109,7 +154,11 @@ fastify.get("/api/summary/recoverable", async (request) => {
  */
 fastify.get("/api/breakdown/payer", async (request) => {
   const params = [];
-  const whereClause = buildFilters(request.query, params);
+  const whereClause = buildWhereWithBase(
+    request.query,
+    params,
+    "paid_amount < allowed_amount"
+  );
 
   const [rows] = await pool.query(
     `
@@ -120,7 +169,6 @@ fastify.get("/api/breakdown/payer", async (request) => {
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
     ${whereClause}
-      AND paid_amount < allowed_amount
     GROUP BY payer_type, payer_plan
     ORDER BY missing_amount DESC
     `,
@@ -135,7 +183,11 @@ fastify.get("/api/breakdown/payer", async (request) => {
  */
 fastify.get("/api/breakdown/cpt", async (request) => {
   const params = [];
-  const whereClause = buildFilters(request.query, params);
+  const whereClause = buildWhereWithBase(
+    request.query,
+    params,
+    "paid_amount < allowed_amount"
+  );
 
   const [rows] = await pool.query(
     `
@@ -145,7 +197,6 @@ fastify.get("/api/breakdown/cpt", async (request) => {
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
     ${whereClause}
-      AND paid_amount < allowed_amount
     GROUP BY cpt_hcpcs_code
     ORDER BY missing_amount DESC
     `,
@@ -160,7 +211,11 @@ fastify.get("/api/breakdown/cpt", async (request) => {
  */
 fastify.get("/api/timeseries/missing-money", async (request) => {
   const params = [];
-  const whereClause = buildFilters(request.query, params);
+  const whereClause = buildWhereWithBase(
+    request.query,
+    params,
+    "paid_amount < allowed_amount"
+  );
 
   const [rows] = await pool.query(
     `
@@ -169,7 +224,6 @@ fastify.get("/api/timeseries/missing-money", async (request) => {
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
     ${whereClause}
-      AND paid_amount < allowed_amount
     GROUP BY period
     ORDER BY period
     `,

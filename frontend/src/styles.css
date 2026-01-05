@@ -29,10 +29,10 @@ body {
   min-height: calc(100vh - var(--topbar-height));
 }
 
-/* Main content area */
+/* Main content area (breathing room, #5) */
 .main-content {
   flex-grow: 1;
-  padding: 32px;
+  padding: 40px 48px;
   margin-top: var(--topbar-height);
 }
 
@@ -43,6 +43,11 @@ body {
   color: #ffffff;
 }
 
+/* Subtle sidebar depth cue (#4) */
+.app-sidebar .MuiDrawer-paper {
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.15);
+}
+
 /* Page card */
 .page-card {
   background: var(--panel-bg);
@@ -51,28 +56,52 @@ body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
 
+/* Typography rhythm */
 .page-card h1 {
-  margin-top: 0;
+  margin: 0 0 16px 0;
   font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .page-card h2 {
-  margin-top: 2rem;
-  font-size: 1.4rem;
+  margin: 40px 0 12px 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--primary-text);
 }
 
 .page-card p {
-  line-height: 1.7;
+  margin: 12px 0;
+  line-height: 1.75;
   color: var(--secondary-text);
-  max-width: 900px;
+  max-width: 920px;
+}
+
+/* Lists read cleanly */
+.page-card ul {
+  margin: 16px 0 24px 20px;
+  padding: 0;
+}
+
+.page-card li {
+  margin-bottom: 8px;
+  line-height: 1.6;
 }
 
 .tool-list {
   margin-top: 16px;
 }
 
-.tool-list li {
-  margin-bottom: 8px;
+/* Soft section divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgba(0,0,0,0.08),
+    rgba(0,0,0,0.02)
+  );
+  margin: 36px 0;
 }
 
 /* Summary metrics container */
@@ -83,7 +112,7 @@ body {
   margin-bottom: 40px;
   padding: 24px;
   border-radius: 16px;
-  background-color: rgba(59, 92, 126, 0.04); /* subtle steel-blue wash */
+  background-color: rgba(59, 92, 126, 0.04);
 }
 
 /* Individual summary cards */
@@ -136,7 +165,7 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Hover state: brighter band, darker text */
+/* Hover state: brighter band, stronger contrast */
 .app-sidebar .MuiListItemButton-root:hover {
   background-color: rgba(255, 255, 255, 0.18);
   color: #ffffff;
@@ -151,4 +180,36 @@ body {
 /* Keep selected state on hover */
 .app-sidebar .MuiListItemButton-root.Mui-selected:hover {
   background-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Data tables */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 24px;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.data-table td {
+  padding: 14px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  font-size: 0.95rem;
+}
+
+.data-table tr:hover {
+  background-color: rgba(59, 92, 126, 0.05);
+}
+
+.data-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
