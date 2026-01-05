@@ -1,5 +1,6 @@
 const Fastify = require("fastify");
 const pool = require("./db");
+const PDFDocument = require("pdfkit");
 
 const fastify = Fastify({ logger: true });
 
@@ -14,19 +15,16 @@ const ALLOWED_SORT_FIELDS = [
   "missing_amount"
 ];
 
-/**
- * Helper: safely parse numeric query params
- */
+/* ============================================================
+   Utilities
+============================================================ */
+
 function toNumberOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isNaN(n) ? null : n;
 }
 
-/**
- * Build WHERE clause with optional filters
- * Appeal eligibility is DERIVED, not read from column
- */
 function buildFilters(query, params) {
   const conditions = [];
 
@@ -41,7 +39,7 @@ function buildFilters(query, params) {
     params.push(query.end_date);
   }
 
-  /* Exact / fuzzy matches */
+  /* Text filters */
   if (query.payer_type) {
     conditions.push("payer_type = ?");
     params.push(query.payer_type);
@@ -57,13 +55,7 @@ function buildFilters(query, params) {
     params.push(query.cpt);
   }
 
-  /**
-   * DERIVED appeal eligibility
-   * Yes:
-   *   paid < allowed AND denial_reason != 'Timely Filing'
-   * No:
-   *   paid < allowed AND denial_reason = 'Timely Filing'
-   */
+  /* Derived appeal eligibility */
   if (query.appeal_eligible === "Yes") {
     conditions.push(`
       paid_amount < allowed_amount
@@ -90,27 +82,22 @@ function buildFilters(query, params) {
     conditions.push("allowed_amount >= ?");
     params.push(minAllowed);
   }
-
   if (maxAllowed !== null) {
     conditions.push("allowed_amount <= ?");
     params.push(maxAllowed);
   }
-
   if (minPaid !== null) {
     conditions.push("paid_amount >= ?");
     params.push(minPaid);
   }
-
   if (maxPaid !== null) {
     conditions.push("paid_amount <= ?");
     params.push(maxPaid);
   }
-
   if (minMissing !== null) {
     conditions.push("(allowed_amount - paid_amount) >= ?");
     params.push(minMissing);
   }
-
   if (maxMissing !== null) {
     conditions.push("(allowed_amount - paid_amount) <= ?");
     params.push(maxMissing);
@@ -119,28 +106,23 @@ function buildFilters(query, params) {
   return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 }
 
-/**
- * Build WHERE clause with mandatory base condition
- */
 function buildWhereWithBase(query, params, baseCondition) {
   const conditions = [baseCondition];
-
-  const extraWhere = buildFilters(query, params);
-  if (extraWhere) {
-    conditions.push(extraWhere.replace(/^WHERE /, ""));
-  }
-
+  const extra = buildFilters(query, params);
+  if (extra) conditions.push(extra.replace(/^WHERE /, ""));
   return `WHERE ${conditions.join(" AND ")}`;
 }
 
-/**
- * Health check
- */
+/* ============================================================
+   Health
+============================================================ */
+
 fastify.get("/health", async () => ({ status: "ok" }));
 
-/**
- * Summary: billed vs allowed vs paid vs missing
- */
+/* ============================================================
+   Summary APIs
+============================================================ */
+
 fastify.get("/api/summary/missing-money", async (request) => {
   const params = [];
   const whereClause = buildFilters(request.query, params);
@@ -161,9 +143,6 @@ fastify.get("/api/summary/missing-money", async (request) => {
   return rows[0];
 });
 
-/**
- * Summary: recoverable vs non-recoverable (derived)
- */
 fastify.get("/api/summary/recoverable", async (request) => {
   const params = [];
   const whereClause = buildWhereWithBase(
@@ -191,9 +170,10 @@ fastify.get("/api/summary/recoverable", async (request) => {
   return rows;
 });
 
-/**
- * Breakdown: payer
- */
+/* ============================================================
+   Breakdown APIs
+============================================================ */
+
 fastify.get("/api/breakdown/payer", async (request) => {
   const params = [];
   const whereClause = buildWhereWithBase(
@@ -220,9 +200,6 @@ fastify.get("/api/breakdown/payer", async (request) => {
   return rows;
 });
 
-/**
- * Breakdown: CPT
- */
 fastify.get("/api/breakdown/cpt", async (request) => {
   const params = [];
   const whereClause = buildWhereWithBase(
@@ -248,9 +225,10 @@ fastify.get("/api/breakdown/cpt", async (request) => {
   return rows;
 });
 
-/**
- * Time series: missing money by month
- */
+/* ============================================================
+   Time Series
+============================================================ */
+
 fastify.get("/api/timeseries/missing-money", async (request) => {
   const params = [];
   const whereClause = buildWhereWithBase(
@@ -275,9 +253,10 @@ fastify.get("/api/timeseries/missing-money", async (request) => {
   return rows;
 });
 
-/**
- * Raw claim search
- */
+/* ============================================================
+   Claim Search
+============================================================ */
+
 fastify.get("/api/claims/search", async (request) => {
   const params = [];
   const whereClause = buildFilters(request.query, params);
@@ -308,9 +287,154 @@ fastify.get("/api/claims/search", async (request) => {
   return rows;
 });
 
-/**
- * Start server
- */
+/* ============================================================
+   Executive PDF Report (single-page, styled)
+============================================================ */
+
+fastify.get("/api/reports/summary-pdf", (request, reply) => {
+  reply.hijack();
+
+  reply.raw.setHeader("Content-Type", "application/pdf");
+  reply.raw.setHeader(
+    "Content-Disposition",
+    "inline; filename=Revenue_Integrity_Summary.pdf"
+  );
+
+  const doc = new PDFDocument({
+    size: "LETTER",
+    margins: { top: 50, left: 50, right: 50, bottom: 50 }
+  });
+
+  doc.pipe(reply.raw);
+
+  (async () => {
+    try {
+      const [[summary]] = await pool.query(`
+        SELECT
+          SUM(billed_amount) AS total_billed,
+          SUM(allowed_amount) AS total_allowed,
+          SUM(paid_amount) AS total_paid,
+          SUM(allowed_amount - paid_amount) AS total_missing
+        FROM claims
+      `);
+
+      const [recoverable] = await pool.query(`
+        SELECT
+          CASE
+            WHEN denial_reason = 'Timely Filing' THEN 'No'
+            ELSE 'Yes'
+          END AS appeal_eligible,
+          SUM(allowed_amount - paid_amount) AS missing_amount
+        FROM claims
+        WHERE paid_amount < allowed_amount
+        GROUP BY appeal_eligible
+      `);
+
+      const recoverableYes =
+        recoverable.find(r => r.appeal_eligible === "Yes")?.missing_amount || 0;
+
+      const percent = (p, t) =>
+        t > 0 ? ((p / t) * 100).toFixed(1) : "0.0";
+
+      const formatMoney = v =>
+        `$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+      const steelBlue = "#3b5c7e";
+      const borderGray = "#d1d5db";
+      const textGray = "#374151";
+
+      const pageWidth = doc.page.width;
+      const contentWidth = pageWidth - 100;
+
+      /* Header */
+      doc.rect(0, 0, pageWidth, 80).fill(steelBlue);
+      doc.fillColor("white").fontSize(20)
+        .text("Revenue Integrity Summary", 50, 28);
+      doc.fontSize(10)
+        .text(`Generated ${new Date().toLocaleDateString()}`, pageWidth - 200, 34);
+
+      /* Content border */
+      doc.fillColor("black")
+        .rect(50, 100, contentWidth, 620)
+        .stroke(borderGray);
+
+      /* Summary cards */
+      const cardTop = 120;
+      const cardHeight = 90;
+      const gap = 12;
+      const cardWidth = (contentWidth - gap * 3) / 4;
+
+      [
+        ["Billed", formatMoney(summary.total_billed)],
+        ["Allowed", formatMoney(summary.total_allowed)],
+        ["Paid", formatMoney(summary.total_paid)],
+        ["Missing", formatMoney(summary.total_missing)]
+      ].forEach(([label, value], i) => {
+        const x = 50 + i * (cardWidth + gap);
+        doc.rect(x, cardTop, cardWidth, cardHeight).stroke(borderGray);
+        doc.fillColor(textGray).fontSize(10)
+          .text(label.toUpperCase(), x + 12, cardTop + 12);
+        doc.fontSize(18)
+          .fillColor(label === "Missing" ? "#8b0000" : "black")
+          .text(value, x + 12, cardTop + 36);
+      });
+
+      let y = cardTop + cardHeight + 40;
+
+      doc.fillColor("black").fontSize(14)
+        .text("Key Findings", 70, y);
+
+      y += 20;
+      doc.fontSize(11).fillColor(textGray).list(
+        [
+          `Missing revenue represents ${percent(
+            summary.total_missing,
+            summary.total_allowed
+          )}% of allowed amounts.`,
+          `${percent(
+            recoverableYes,
+            summary.total_missing
+          )}% appears potentially appeal-eligible.`,
+          "Loss is concentrated within a limited subset of claims."
+        ],
+        { bulletIndent: 12 }
+      );
+
+      y += 120;
+      doc.fillColor("black").fontSize(14)
+        .text("Recommended Actions", 70, y);
+
+      y += 20;
+      doc.fontSize(11).fillColor(textGray).list(
+        [
+          "Prioritize appeal of high-dollar underpayments.",
+          "Address timely filing workflow gaps.",
+          "Standardize documentation for high-risk services.",
+          "Monitor payer behavior on a recurring basis."
+        ],
+        { bulletIndent: 12 }
+      );
+
+      doc.fontSize(9).fillColor("#6b7280").text(
+        "Scope: Adjudicated claims only. Appeal eligibility inferred from payment behavior and denial reason. Figures represent contractual discrepancies.",
+        70,
+        680,
+        { width: contentWidth - 40 }
+      );
+
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      reply.raw.destroy(err);
+    } finally {
+      doc.end();
+    }
+  })();
+});
+
+/* ============================================================
+   Start server
+============================================================ */
+
 const start = async () => {
   try {
     await fastify.listen({

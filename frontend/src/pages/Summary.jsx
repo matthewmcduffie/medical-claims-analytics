@@ -2,137 +2,164 @@ import { useEffect, useState } from "react";
 
 function Summary() {
   const [summary, setSummary] = useState(null);
+  const [recoverable, setRecoverable] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch("http://localhost:3002/api/summary/missing-money")
-      .then((res) => {
-        if (!res.ok) throw new Error("API error");
-        return res.json();
+    Promise.all([
+      fetch("http://localhost:3002/api/summary/missing-money").then((r) =>
+        r.ok ? r.json() : Promise.reject()
+      ),
+      fetch("http://localhost:3002/api/summary/recoverable").then((r) =>
+        r.ok ? r.json() : Promise.reject()
+      )
+    ])
+      .then(([summaryData, recoverableData]) => {
+        setSummary(summaryData);
+        setRecoverable(recoverableData);
       })
-      .then(setSummary)
       .catch(() => setError("Failed to load summary data."));
   }, []);
 
-  /**
-   * Format currency safely from MariaDB DECIMAL strings
-   */
-  const formatCurrency = (value) => {
-    if (value === null || value === undefined) return "$0";
-
-    const number = Number(value);
-    if (Number.isNaN(number)) return "$0";
-
-    return number.toLocaleString("en-US", {
+  const formatCurrency = (value) =>
+    Number(value || 0).toLocaleString("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
       maximumFractionDigits: 0
     });
-  };
 
-  /**
-   * Format percentage with one decimal
-   */
-  const formatPercent = (numerator, denominator) => {
-    if (!denominator || Number.isNaN(numerator)) return "0%";
-    return `${((numerator / denominator) * 100).toFixed(1)}%`;
-  };
+  const percent = (part, total) =>
+    total > 0 ? ((part / total) * 100).toFixed(1) : "0.0";
+
+  if (error) {
+    return (
+      <div className="page-card">
+        <h1>Revenue Summary</h1>
+        <p style={{ color: "darkred" }}>{error}</p>
+      </div>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <div className="page-card">
+        <h1>Revenue Summary</h1>
+        <p>Loading summary data…</p>
+      </div>
+    );
+  }
+
+  const totalMissing = Number(summary.total_missing || 0);
+  const totalAllowed = Number(summary.total_allowed || 0);
+  const totalBilled = Number(summary.total_billed || 0);
+
+  const recoverableYes = recoverable.find((r) => r.appeal_eligible === "Yes");
+  const recoverableNo = recoverable.find((r) => r.appeal_eligible === "No");
+
+  const recoverableAmount = recoverableYes
+    ? Number(recoverableYes.missing_amount)
+    : 0;
+
+  const nonRecoverableAmount = recoverableNo
+    ? Number(recoverableNo.missing_amount)
+    : 0;
 
   return (
     <div className="page-card">
       <h1>Revenue Summary</h1>
 
       <p>
-        This overview highlights the relationship between billed, allowed, and
-        paid amounts across the dataset, surfacing the total financial impact
-        of underpayments and denials.
+        This summary provides a high level view of billed, allowed, and paid
+        amounts across the dataset, with emphasis on identifying payment
+        discrepancies that may represent recoverable revenue.
       </p>
 
-      {error && <p style={{ color: "darkred" }}>{error}</p>}
-
-      {!summary && !error && <p>Loading summary data…</p>}
-
-      {summary && (
-        <div className="summary-grid">
-          <div className="summary-card">
-            <h3>Total Billed</h3>
-            <div className="value">
-              {formatCurrency(summary.total_billed)}
-            </div>
-          </div>
-
-          <div className="summary-card">
-            <h3>Total Allowed</h3>
-            <div className="value">
-              {formatCurrency(summary.total_allowed)}
-            </div>
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "0.85rem",
-                color: "#6b7280"
-              }}
-            >
-              {formatPercent(
-                Number(summary.total_allowed),
-                Number(summary.total_billed)
-              )}{" "}
-              of billed
-            </div>
-          </div>
-
-          <div className="summary-card">
-            <h3>Total Paid</h3>
-            <div className="value">
-              {formatCurrency(summary.total_paid)}
-            </div>
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "0.85rem",
-                color: "#6b7280"
-              }}
-            >
-              {formatPercent(
-                Number(summary.total_paid),
-                Number(summary.total_allowed)
-              )}{" "}
-              of allowed
-            </div>
-          </div>
-
-          <div className="summary-card missing">
-            <h3>Total Missing</h3>
-            <div className="value">
-              {formatCurrency(summary.total_missing)}
-            </div>
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "0.85rem",
-                color: "#6b7280"
-              }}
-            >
-              {formatPercent(
-                Number(summary.total_missing),
-                Number(summary.total_allowed)
-              )}{" "}
-              of allowed
-            </div>
-          </div>
+      {/* Core metrics */}
+      <div className="summary-grid">
+        <div className="summary-card">
+          <h3>Total Billed</h3>
+          <div className="value">{formatCurrency(totalBilled)}</div>
         </div>
-      )}
+
+        <div className="summary-card">
+          <h3>Total Allowed</h3>
+          <div className="value">{formatCurrency(totalAllowed)}</div>
+        </div>
+
+        <div className="summary-card">
+          <h3>Total Paid</h3>
+          <div className="value">{formatCurrency(summary.total_paid)}</div>
+        </div>
+
+        <div className="summary-card missing">
+          <h3>Total Missing</h3>
+          <div className="value">{formatCurrency(totalMissing)}</div>
+          <p className="subtext">
+            {percent(totalMissing, totalAllowed)}% of allowed
+          </p>
+        </div>
+      </div>
 
       <div className="section-divider" />
 
-      <h2>How to Read This</h2>
+      {/* Key insights */}
+      <h2>Key Observations</h2>
+
+      <ul className="tool-list">
+        <li>
+          Missing revenue represents{" "}
+          <strong>{percent(totalMissing, totalAllowed)}%</strong> of total
+          allowed amounts, indicating measurable payment friction beyond
+          contractual adjustments.
+        </li>
+
+        <li>
+          Approximately{" "}
+          <strong>
+            {percent(recoverableAmount, totalMissing)}%
+          </strong>{" "}
+          of missing revenue appears potentially appeal eligible based on denial
+          behavior and payment status.
+        </li>
+
+        <li>
+          The remaining{" "}
+          <strong>
+            {percent(nonRecoverableAmount, totalMissing)}%
+          </strong>{" "}
+          is associated with structurally unrecoverable scenarios such as timely
+          filing denials.
+        </li>
+      </ul>
+
+      <div className="section-divider" />
+
+      {/* Guidance */}
+      <h2>Recommended Areas for Review</h2>
 
       <p>
-        Billed amounts represent provider charges, while allowed amounts reflect
-        payer contractual adjustments. The gap between allowed and paid highlights
-        payment discrepancies that may represent recoverable revenue or true
-        write offs depending on appeal eligibility.
+        Payment discrepancies are not evenly distributed. Subsequent analysis
+        should focus on payer segments and procedure codes that account for a
+        disproportionate share of missing revenue, particularly where appeal
+        eligibility is high.
+      </p>
+
+      <p>
+        Patterns observed here provide direction for deeper review in the Payer,
+        CPT, and Claim Search views, where individual behaviors and root causes
+        can be examined in detail.
+      </p>
+
+      <div className="section-divider" />
+
+      {/* Scope */}
+      <h2>Data Scope & Assumptions</h2>
+
+      <p>
+        This analysis reflects adjudicated claims only. Appeal eligibility is
+        derived from payment status and denial reason rather than explicit flags.
+        Dollar amounts represent contractual underpayments and denials, not gross
+        provider charges.
       </p>
     </div>
   );

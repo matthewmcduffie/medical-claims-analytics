@@ -20,6 +20,17 @@ function Sidebar() {
     </ListItemButton>
   );
 
+  const externalItem = (label, href) => (
+    <ListItemButton
+      component="a"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <ListItemText primary={label} />
+    </ListItemButton>
+  );
+
   return (
     <Drawer
       variant="permanent"
@@ -46,6 +57,13 @@ function Sidebar() {
         {navItem("Payer Analysis", "/payer-analysis")}
         {navItem("CPT Analysis", "/cpt-analysis")}
         {navItem("Claim Search", "/claim-search")}
+
+        <Divider sx={{ backgroundColor: "rgba(255,255,255,0.25)" }} />
+
+        {externalItem(
+          "Sample Report (PDF)",
+          "http://localhost:3002/api/reports/summary-pdf"
+        )}
       </List>
     </Drawer>
   );
