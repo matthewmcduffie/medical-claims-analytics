@@ -128,3 +128,27 @@ body {
 .summary-card.missing .value {
   color: #8b0000;
 }
+
+/* Sidebar navigation behavior */
+.app-sidebar .MuiListItemButton-root {
+  color: rgba(255, 255, 255, 0.85);
+  padding-left: 24px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Hover state: brighter band, darker text */
+.app-sidebar .MuiListItemButton-root:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* Selected (active) state */
+.app-sidebar .MuiListItemButton-root.Mui-selected {
+  background-color: rgba(255, 255, 255, 0.26);
+  color: #ffffff;
+}
+
+/* Keep selected state on hover */
+.app-sidebar .MuiListItemButton-root.Mui-selected:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+}

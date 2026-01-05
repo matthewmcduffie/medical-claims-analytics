@@ -22,7 +22,7 @@ function TopBar() {
         <Box>
           <IconButton
             color="inherit"
-            href="https://github.com/yourusername"
+            href="https://github.com/matthewmcduffie"
             target="_blank"
           >
             <GitHubIcon />
@@ -30,7 +30,7 @@ function TopBar() {
 
           <IconButton
             color="inherit"
-            href="https://www.linkedin.com/in/yourprofile"
+            href="https://www.linkedin.com/in/johnmcduffie/"
             target="_blank"
           >
             <LinkedInIcon />

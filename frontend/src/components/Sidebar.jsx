@@ -23,10 +23,13 @@ function Sidebar() {
   return (
     <Drawer
       variant="permanent"
+      className="app-sidebar"
       sx={{
         width: drawerWidth,
+        flexShrink: 0,
         "& .MuiDrawer-paper": {
           width: drawerWidth,
+          boxSizing: "border-box",
           top: "64px",
           height: "calc(100% - 64px)",
           backgroundColor: "var(--steel-blue)",
@@ -34,10 +37,10 @@ function Sidebar() {
         }
       }}
     >
-      <List>
+      <List disablePadding>
         {navItem("Overview", "/")}
 
-        <Divider sx={{ backgroundColor: "rgba(255,255,255,0.2)" }} />
+        <Divider sx={{ backgroundColor: "rgba(255,255,255,0.25)" }} />
 
         {navItem("Summary", "/summary")}
         {navItem("Payer Analysis", "/payer-analysis")}
