@@ -1,134 +1,212 @@
 const Fastify = require("fastify");
 const pool = require("./db");
 
-const fastify = Fastify({
-  logger: true
+const fastify = Fastify({ logger: true });
+fastify.register(require("@fastify/cors"), {
+  origin: "http://localhost:5173"
 });
+
+const ALLOWED_SORT_FIELDS = [
+  "service_date",
+  "allowed_amount",
+  "paid_amount",
+  "missing_amount"
+];
+
+/**
+ * Helper: build WHERE clause safely
+ */
+function buildFilters(query, params) {
+  const conditions = [];
+
+  if (query.start_date) {
+    conditions.push("service_date >= ?");
+    params.push(query.start_date);
+  }
+
+  if (query.end_date) {
+    conditions.push("service_date <= ?");
+    params.push(query.end_date);
+  }
+
+  if (query.payer_type) {
+    conditions.push("payer_type = ?");
+    params.push(query.payer_type);
+  }
+
+  if (query.payer_plan) {
+    conditions.push("payer_plan = ?");
+    params.push(query.payer_plan);
+  }
+
+  if (query.cpt) {
+    conditions.push("cpt_hcpcs_code = ?");
+    params.push(query.cpt);
+  }
+
+  if (query.appeal_eligible) {
+    conditions.push("appeal_eligible = ?");
+    params.push(query.appeal_eligible);
+  }
+
+  return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+}
 
 /**
  * Health check
  */
-fastify.get("/health", async () => {
-  return { status: "ok" };
-});
+fastify.get("/health", async () => ({ status: "ok" }));
 
 /**
- * Missing money summary
+ * Summary: billed vs paid vs missing
  */
-fastify.get("/api/summary/missing-money", async () => {
-  const [rows] = await pool.query(`
+fastify.get("/api/summary/missing-money", async (request) => {
+  const params = [];
+  const whereClause = buildFilters(request.query, params);
+
+  const [rows] = await pool.query(
+    `
     SELECT
+      SUM(billed_amount) AS total_billed,
       SUM(allowed_amount) AS total_allowed,
       SUM(paid_amount) AS total_paid,
       SUM(allowed_amount - paid_amount) AS total_missing
     FROM claims
-    WHERE paid_amount < allowed_amount
-  `);
+    ${whereClause}
+    `,
+    params
+  );
 
   return rows[0];
 });
 
 /**
- * Recoverable vs non-recoverable loss
+ * Summary: recoverable vs non-recoverable
  */
-fastify.get("/api/summary/recoverable", async () => {
-  const [rows] = await pool.query(`
+fastify.get("/api/summary/recoverable", async (request) => {
+  const params = [];
+  const whereClause = buildFilters(request.query, params);
+
+  const [rows] = await pool.query(
+    `
     SELECT
       appeal_eligible,
+      COUNT(*) AS claim_count,
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
-    WHERE paid_amount < allowed_amount
+    ${whereClause}
+      AND paid_amount < allowed_amount
     GROUP BY appeal_eligible
-  `);
+    `,
+    params
+  );
 
   return rows;
 });
 
 /**
- * Missing money by payer
+ * Breakdown: payer
  */
-fastify.get("/api/breakdown/payer", async () => {
-  const [rows] = await pool.query(`
+fastify.get("/api/breakdown/payer", async (request) => {
+  const params = [];
+  const whereClause = buildFilters(request.query, params);
+
+  const [rows] = await pool.query(
+    `
     SELECT
       payer_type,
       payer_plan,
       COUNT(*) AS claim_count,
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
-    WHERE paid_amount < allowed_amount
+    ${whereClause}
+      AND paid_amount < allowed_amount
     GROUP BY payer_type, payer_plan
     ORDER BY missing_amount DESC
-  `);
+    `,
+    params
+  );
 
   return rows;
 });
 
 /**
- * Missing money by CPT
+ * Breakdown: CPT
  */
-fastify.get("/api/breakdown/cpt", async () => {
-  const [rows] = await pool.query(`
+fastify.get("/api/breakdown/cpt", async (request) => {
+  const params = [];
+  const whereClause = buildFilters(request.query, params);
+
+  const [rows] = await pool.query(
+    `
     SELECT
       cpt_hcpcs_code,
       COUNT(*) AS claim_count,
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
-    WHERE paid_amount < allowed_amount
+    ${whereClause}
+      AND paid_amount < allowed_amount
     GROUP BY cpt_hcpcs_code
     ORDER BY missing_amount DESC
-  `);
+    `,
+    params
+  );
 
   return rows;
 });
 
 /**
- * Claim search
+ * Time series: missing money by month
  */
-fastify.get("/api/claims/search", async (request) => {
-  const {
-    claim_id,
-    payer_type,
-    cpt,
-    appeal_eligible,
-    limit = 50
-  } = request.query;
-
-  const conditions = [];
+fastify.get("/api/timeseries/missing-money", async (request) => {
   const params = [];
-
-  if (claim_id) {
-    conditions.push("claim_id = ?");
-    params.push(claim_id);
-  }
-
-  if (payer_type) {
-    conditions.push("payer_type = ?");
-    params.push(payer_type);
-  }
-
-  if (cpt) {
-    conditions.push("cpt_hcpcs_code = ?");
-    params.push(cpt);
-  }
-
-  if (appeal_eligible) {
-    conditions.push("appeal_eligible = ?");
-    params.push(appeal_eligible);
-  }
-
-  const whereClause = conditions.length
-    ? `WHERE ${conditions.join(" AND ")}`
-    : "";
+  const whereClause = buildFilters(request.query, params);
 
   const [rows] = await pool.query(
     `
-    SELECT *
+    SELECT
+      DATE_FORMAT(service_date, '%Y-%m') AS period,
+      SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
     ${whereClause}
-    ORDER BY service_date DESC
-    LIMIT ?
+      AND paid_amount < allowed_amount
+    GROUP BY period
+    ORDER BY period
     `,
-    [...params, Number(limit)]
+    params
+  );
+
+  return rows;
+});
+
+/**
+ * Raw claim search with pagination and sorting
+ */
+fastify.get("/api/claims/search", async (request) => {
+  const params = [];
+  const whereClause = buildFilters(request.query, params);
+
+  const limit = Math.min(Number(request.query.limit) || 50, 500);
+  const offset = Number(request.query.offset) || 0;
+
+  let sortBy = request.query.sort_by || "service_date";
+  let sortDir = request.query.sort_dir === "asc" ? "ASC" : "DESC";
+
+  if (!ALLOWED_SORT_FIELDS.includes(sortBy)) {
+    sortBy = "service_date";
+  }
+
+  const [rows] = await pool.query(
+    `
+    SELECT
+      *,
+      (allowed_amount - paid_amount) AS missing_amount
+    FROM claims
+    ${whereClause}
+    ORDER BY ${sortBy} ${sortDir}
+    LIMIT ? OFFSET ?
+    `,
+    [...params, limit, offset]
   );
 
   return rows;
