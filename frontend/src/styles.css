@@ -213,3 +213,32 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* Simple filter bar */
+.filter-bar {
+  display: flex;
+  gap: 16px;
+  margin: 24px 0;
+  flex-wrap: wrap;
+}
+
+.filter-bar input,
+.filter-bar select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.2);
+  font-size: 0.9rem;
+}
+
+.filter-bar button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background-color: var(--steel-blue);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.filter-bar button:hover {
+  background-color: var(--steel-blue-dark);
+}

@@ -15,12 +15,22 @@ const ALLOWED_SORT_FIELDS = [
 ];
 
 /**
- * Helper: build WHERE clause with optional filters
- * Used when NO base condition is required
+ * Helper: safely parse numeric query params
+ */
+function toNumberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Build WHERE clause with optional filters
+ * Appeal eligibility is DERIVED, not read from column
  */
 function buildFilters(query, params) {
   const conditions = [];
 
+  /* Date range */
   if (query.start_date) {
     conditions.push("service_date >= ?");
     params.push(query.start_date);
@@ -31,14 +41,15 @@ function buildFilters(query, params) {
     params.push(query.end_date);
   }
 
+  /* Exact / fuzzy matches */
   if (query.payer_type) {
     conditions.push("payer_type = ?");
     params.push(query.payer_type);
   }
 
   if (query.payer_plan) {
-    conditions.push("payer_plan = ?");
-    params.push(query.payer_plan);
+    conditions.push("payer_plan LIKE ?");
+    params.push(`%${query.payer_plan}%`);
   }
 
   if (query.cpt) {
@@ -46,49 +57,77 @@ function buildFilters(query, params) {
     params.push(query.cpt);
   }
 
-  if (query.appeal_eligible) {
-    conditions.push("appeal_eligible = ?");
-    params.push(query.appeal_eligible);
+  /**
+   * DERIVED appeal eligibility
+   * Yes:
+   *   paid < allowed AND denial_reason != 'Timely Filing'
+   * No:
+   *   paid < allowed AND denial_reason = 'Timely Filing'
+   */
+  if (query.appeal_eligible === "Yes") {
+    conditions.push(`
+      paid_amount < allowed_amount
+      AND (denial_reason IS NULL OR denial_reason <> 'Timely Filing')
+    `);
+  }
+
+  if (query.appeal_eligible === "No") {
+    conditions.push(`
+      paid_amount < allowed_amount
+      AND denial_reason = 'Timely Filing'
+    `);
+  }
+
+  /* Numeric ranges */
+  const minAllowed = toNumberOrNull(query.min_allowed);
+  const maxAllowed = toNumberOrNull(query.max_allowed);
+  const minPaid = toNumberOrNull(query.min_paid);
+  const maxPaid = toNumberOrNull(query.max_paid);
+  const minMissing = toNumberOrNull(query.min_missing);
+  const maxMissing = toNumberOrNull(query.max_missing);
+
+  if (minAllowed !== null) {
+    conditions.push("allowed_amount >= ?");
+    params.push(minAllowed);
+  }
+
+  if (maxAllowed !== null) {
+    conditions.push("allowed_amount <= ?");
+    params.push(maxAllowed);
+  }
+
+  if (minPaid !== null) {
+    conditions.push("paid_amount >= ?");
+    params.push(minPaid);
+  }
+
+  if (maxPaid !== null) {
+    conditions.push("paid_amount <= ?");
+    params.push(maxPaid);
+  }
+
+  if (minMissing !== null) {
+    conditions.push("(allowed_amount - paid_amount) >= ?");
+    params.push(minMissing);
+  }
+
+  if (maxMissing !== null) {
+    conditions.push("(allowed_amount - paid_amount) <= ?");
+    params.push(maxMissing);
   }
 
   return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 }
 
 /**
- * Helper: build WHERE clause WITH a required base condition
- * Prevents invalid SQL when no filters are provided
+ * Build WHERE clause with mandatory base condition
  */
 function buildWhereWithBase(query, params, baseCondition) {
   const conditions = [baseCondition];
 
-  if (query.start_date) {
-    conditions.push("service_date >= ?");
-    params.push(query.start_date);
-  }
-
-  if (query.end_date) {
-    conditions.push("service_date <= ?");
-    params.push(query.end_date);
-  }
-
-  if (query.payer_type) {
-    conditions.push("payer_type = ?");
-    params.push(query.payer_type);
-  }
-
-  if (query.payer_plan) {
-    conditions.push("payer_plan = ?");
-    params.push(query.payer_plan);
-  }
-
-  if (query.cpt) {
-    conditions.push("cpt_hcpcs_code = ?");
-    params.push(query.cpt);
-  }
-
-  if (query.appeal_eligible) {
-    conditions.push("appeal_eligible = ?");
-    params.push(query.appeal_eligible);
+  const extraWhere = buildFilters(query, params);
+  if (extraWhere) {
+    conditions.push(extraWhere.replace(/^WHERE /, ""));
   }
 
   return `WHERE ${conditions.join(" AND ")}`;
@@ -123,7 +162,7 @@ fastify.get("/api/summary/missing-money", async (request) => {
 });
 
 /**
- * Summary: recoverable vs non-recoverable
+ * Summary: recoverable vs non-recoverable (derived)
  */
 fastify.get("/api/summary/recoverable", async (request) => {
   const params = [];
@@ -136,7 +175,10 @@ fastify.get("/api/summary/recoverable", async (request) => {
   const [rows] = await pool.query(
     `
     SELECT
-      appeal_eligible,
+      CASE
+        WHEN denial_reason = 'Timely Filing' THEN 'No'
+        ELSE 'Yes'
+      END AS appeal_eligible,
       COUNT(*) AS claim_count,
       SUM(allowed_amount - paid_amount) AS missing_amount
     FROM claims
@@ -234,7 +276,7 @@ fastify.get("/api/timeseries/missing-money", async (request) => {
 });
 
 /**
- * Raw claim search with pagination and sorting
+ * Raw claim search
  */
 fastify.get("/api/claims/search", async (request) => {
   const params = [];
