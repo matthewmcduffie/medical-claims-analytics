@@ -22,7 +22,7 @@ function TopBar() {
         <Box>
           <IconButton
             color="inherit"
-            href="https://github.com/matthewmcduffie"
+            href="https://github.com/matthewmcduffie/medical-claims-analytics"
             target="_blank"
           >
             <GitHubIcon />
