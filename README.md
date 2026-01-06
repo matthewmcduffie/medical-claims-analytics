@@ -6,6 +6,8 @@ The purpose of this project is to demonstrate applied data analysis skills in a 
 
 Rather than treating analytics as a collection of charts, this system is designed as an end-to-end analysis workflow, from raw claims data to executive-ready reporting.
 
+🌐 **Live Application:** [https://mca.thelastpatch.com/](https://mca.thelastpatch.com/)
+
 ---
 
 ## Project Overview
