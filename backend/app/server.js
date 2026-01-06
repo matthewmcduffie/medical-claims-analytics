@@ -331,12 +331,12 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
       `);
 
       const recoverableYes =
-        recoverable.find(r => r.appeal_eligible === "Yes")?.missing_amount || 0;
+        recoverable.find((r) => r.appeal_eligible === "Yes")?.missing_amount ||
+        0;
 
-      const percent = (p, t) =>
-        t > 0 ? ((p / t) * 100).toFixed(1) : "0.0";
+      const percent = (p, t) => (t > 0 ? ((p / t) * 100).toFixed(1) : "0.0");
 
-      const formatMoney = v =>
+      const formatMoney = (v) =>
         `$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
       const steelBlue = "#3b5c7e";
@@ -348,15 +348,13 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
 
       /* Header */
       doc.rect(0, 0, pageWidth, 80).fill(steelBlue);
-      doc.fillColor("white").fontSize(20)
-        .text("Revenue Integrity Summary", 50, 28);
-      doc.fontSize(10)
+      doc.fillColor("white").fontSize(20).text("Revenue Integrity Summary", 50, 28);
+      doc
+        .fontSize(10)
         .text(`Generated ${new Date().toLocaleDateString()}`, pageWidth - 200, 34);
 
       /* Content border */
-      doc.fillColor("black")
-        .rect(50, 100, contentWidth, 620)
-        .stroke(borderGray);
+      doc.fillColor("black").rect(50, 100, contentWidth, 620).stroke(borderGray);
 
       /* Summary cards */
       const cardTop = 120;
@@ -372,17 +370,16 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
       ].forEach(([label, value], i) => {
         const x = 50 + i * (cardWidth + gap);
         doc.rect(x, cardTop, cardWidth, cardHeight).stroke(borderGray);
-        doc.fillColor(textGray).fontSize(10)
-          .text(label.toUpperCase(), x + 12, cardTop + 12);
-        doc.fontSize(18)
+        doc.fillColor(textGray).fontSize(10).text(label.toUpperCase(), x + 12, cardTop + 12);
+        doc
+          .fontSize(18)
           .fillColor(label === "Missing" ? "#8b0000" : "black")
           .text(value, x + 12, cardTop + 36);
       });
 
       let y = cardTop + cardHeight + 40;
 
-      doc.fillColor("black").fontSize(14)
-        .text("Key Findings", 70, y);
+      doc.fillColor("black").fontSize(14).text("Key Findings", 70, y);
 
       y += 20;
       doc.fontSize(11).fillColor(textGray).list(
@@ -391,18 +388,14 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
             summary.total_missing,
             summary.total_allowed
           )}% of allowed amounts.`,
-          `${percent(
-            recoverableYes,
-            summary.total_missing
-          )}% appears potentially appeal-eligible.`,
+          `${percent(recoverableYes, summary.total_missing)}% appears potentially appeal-eligible.`,
           "Loss is concentrated within a limited subset of claims."
         ],
         { bulletIndent: 12 }
       );
 
       y += 120;
-      doc.fillColor("black").fontSize(14)
-        .text("Recommended Actions", 70, y);
+      doc.fillColor("black").fontSize(14).text("Recommended Actions", 70, y);
 
       y += 20;
       doc.fontSize(11).fillColor(textGray).list(
@@ -421,7 +414,6 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
         680,
         { width: contentWidth - 40 }
       );
-
     } catch (err) {
       console.error("PDF generation error:", err);
       reply.raw.destroy(err);
@@ -429,6 +421,67 @@ fastify.get("/api/reports/summary-pdf", (request, reply) => {
       doc.end();
     }
   })();
+});
+
+/* ============================================================
+   Recovery Opportunities (Ranked + Confidence)
+============================================================ */
+
+fastify.get("/api/opportunities/ranked", async (request) => {
+  const limit = Math.min(Number(request.query.limit) || 50, 100);
+  const offset = Number(request.query.offset) || 0;
+
+  const [rows] = await pool.query(
+    `
+    SELECT
+      payer_type,
+      payer_plan,
+      cpt_hcpcs_code,
+      COUNT(*) AS claim_count,
+      SUM(allowed_amount - paid_amount) AS total_missing_amount,
+      AVG(allowed_amount - paid_amount) AS avg_missing_per_claim,
+      ROUND(
+        100 * SUM(
+          CASE
+            WHEN denial_reason IS NULL OR denial_reason <> 'Timely Filing'
+            THEN 1 ELSE 0
+          END
+        ) / COUNT(*),
+        1
+      ) AS appeal_eligible_rate
+    FROM claims
+    WHERE paid_amount < allowed_amount
+    GROUP BY payer_type, payer_plan, cpt_hcpcs_code
+    HAVING claim_count >= 5
+    ORDER BY total_missing_amount DESC
+    LIMIT ? OFFSET ?
+    `,
+    [limit, offset]
+  );
+
+  const scored = rows.map((row) => {
+    const appealRate = Number(row.appeal_eligible_rate) || 0;
+    const avgMissing = Number(row.avg_missing_per_claim) || 0;
+    const claimCount = Number(row.claim_count) || 0;
+
+    const appealScore = appealRate * 0.5; // 0..50
+    const avgScore = Math.min(avgMissing / 10, 30); // capped at 30
+    const volumeScore = Math.min(claimCount / 5, 20); // capped at 20
+
+    const score = Math.round(appealScore + avgScore + volumeScore);
+
+    let bucket = "Low";
+    if (score >= 70) bucket = "High";
+    else if (score >= 40) bucket = "Medium";
+
+    return {
+      ...row,
+      confidence_score: score,
+      confidence_bucket: bucket
+    };
+  });
+
+  return scored;
 });
 
 /* ============================================================

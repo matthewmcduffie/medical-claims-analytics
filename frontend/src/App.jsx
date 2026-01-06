@@ -6,6 +6,7 @@ import Summary from "./pages/Summary";
 import PayerAnalysis from "./pages/PayerAnalysis";
 import CptAnalysis from "./pages/CptAnalysis";
 import ClaimSearch from "./pages/ClaimSearch";
+import RecoveryOpportunities from "./pages/RecoveryOpportunities";
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Route path="/payer-analysis" element={<PayerAnalysis />} />
         <Route path="/cpt-analysis" element={<CptAnalysis />} />
         <Route path="/claim-search" element={<ClaimSearch />} />
+        <Route path="/recovery-opportunities" element={<RecoveryOpportunities />} />
       </Routes>
     </Layout>
   );

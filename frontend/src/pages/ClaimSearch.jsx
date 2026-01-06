@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 const PAGE_SIZE = 50;
 
@@ -7,13 +8,15 @@ function ClaimSearch() {
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState(null);
 
-  /* Search filters */
+  const [searchParams] = useSearchParams();
+
+  /* Search filters (initialized from URL params) */
   const [filters, setFilters] = useState({
     start_date: "",
     end_date: "",
-    payer_type: "",
-    payer_plan: "",
-    cpt: "",
+    payer_type: searchParams.get("payer_type") || "",
+    payer_plan: searchParams.get("payer_plan") || "",
+    cpt: searchParams.get("cpt") || "",
     appeal_eligible: "",
     min_allowed: "",
     max_allowed: "",
@@ -32,6 +35,7 @@ function ClaimSearch() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offset, sortBy, sortDir]);
 
+  /* Load data from API */
   const loadData = () => {
     const params = new URLSearchParams({
       limit: PAGE_SIZE,
@@ -53,16 +57,19 @@ function ClaimSearch() {
       .catch(() => setError("Failed to load claims."));
   };
 
+  /* Update individual filter */
   const updateFilter = (field, value) => {
     setOffset(0);
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
 
+  /* Apply filters explicitly */
   const applyFilters = () => {
     setOffset(0);
     loadData();
   };
 
+  /* Reset all filters */
   const resetFilters = () => {
     setOffset(0);
     setFilters({
@@ -120,14 +127,12 @@ function ClaimSearch() {
           type="date"
           value={filters.start_date}
           onChange={(e) => updateFilter("start_date", e.target.value)}
-          placeholder="Start date"
         />
 
         <input
           type="date"
           value={filters.end_date}
           onChange={(e) => updateFilter("end_date", e.target.value)}
-          placeholder="End date"
         />
 
         <select

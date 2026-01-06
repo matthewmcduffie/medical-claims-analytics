@@ -56,8 +56,9 @@ function Sidebar() {
         {navItem("Summary", "/summary")}
         {navItem("Payer Analysis", "/payer-analysis")}
         {navItem("CPT Analysis", "/cpt-analysis")}
+        {navItem("Recovery Opportunities", "/recovery-opportunities")}
         {navItem("Claim Search", "/claim-search")}
-
+        
         <Divider sx={{ backgroundColor: "rgba(255,255,255,0.25)" }} />
 
         {externalItem(

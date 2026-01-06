@@ -1,28 +1,23 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function Summary() {
   const [summary, setSummary] = useState(null);
-  const [recoverable, setRecoverable] = useState([]);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    Promise.all([
-      fetch("http://localhost:3002/api/summary/missing-money").then((r) =>
-        r.ok ? r.json() : Promise.reject()
-      ),
-      fetch("http://localhost:3002/api/summary/recoverable").then((r) =>
-        r.ok ? r.json() : Promise.reject()
-      )
-    ])
-      .then(([summaryData, recoverableData]) => {
-        setSummary(summaryData);
-        setRecoverable(recoverableData);
+    fetch("http://localhost:3002/api/summary/missing-money")
+      .then((res) => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
       })
+      .then(setSummary)
       .catch(() => setError("Failed to load summary data."));
   }, []);
 
   const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString("en-US", {
+    Number(value).toLocaleString("en-US", {
       style: "currency",
       currency: "USD",
       maximumFractionDigits: 0
@@ -31,136 +26,114 @@ function Summary() {
   const percent = (part, total) =>
     total > 0 ? ((part / total) * 100).toFixed(1) : "0.0";
 
-  if (error) {
-    return (
-      <div className="page-card">
-        <h1>Revenue Summary</h1>
-        <p style={{ color: "darkred" }}>{error}</p>
-      </div>
-    );
-  }
-
-  if (!summary) {
-    return (
-      <div className="page-card">
-        <h1>Revenue Summary</h1>
-        <p>Loading summary data…</p>
-      </div>
-    );
-  }
-
-  const totalMissing = Number(summary.total_missing || 0);
-  const totalAllowed = Number(summary.total_allowed || 0);
-  const totalBilled = Number(summary.total_billed || 0);
-
-  const recoverableYes = recoverable.find((r) => r.appeal_eligible === "Yes");
-  const recoverableNo = recoverable.find((r) => r.appeal_eligible === "No");
-
-  const recoverableAmount = recoverableYes
-    ? Number(recoverableYes.missing_amount)
-    : 0;
-
-  const nonRecoverableAmount = recoverableNo
-    ? Number(recoverableNo.missing_amount)
-    : 0;
-
   return (
     <div className="page-card">
       <h1>Revenue Summary</h1>
 
       <p>
-        This summary provides a high level view of billed, allowed, and paid
-        amounts across the dataset, with emphasis on identifying payment
-        discrepancies that may represent recoverable revenue.
+        This overview summarizes billing outcomes across all analyzed claims,
+        highlighting the relationship between billed, allowed, and paid amounts
+        and the resulting financial exposure.
       </p>
 
-      {/* Core metrics */}
-      <div className="summary-grid">
-        <div className="summary-card">
-          <h3>Total Billed</h3>
-          <div className="value">{formatCurrency(totalBilled)}</div>
-        </div>
+      {error && <p style={{ color: "darkred" }}>{error}</p>}
+      {!summary && !error && <p>Loading summary data…</p>}
 
-        <div className="summary-card">
-          <h3>Total Allowed</h3>
-          <div className="value">{formatCurrency(totalAllowed)}</div>
-        </div>
+      {summary && (
+        <>
+          {/* Summary Metrics */}
+          <div className="summary-grid">
+            <div className="summary-card">
+              <h3>Total Billed</h3>
+              <div className="value">
+                {formatCurrency(summary.total_billed)}
+              </div>
+            </div>
 
-        <div className="summary-card">
-          <h3>Total Paid</h3>
-          <div className="value">{formatCurrency(summary.total_paid)}</div>
-        </div>
+            <div className="summary-card">
+              <h3>Total Allowed</h3>
+              <div className="value">
+                {formatCurrency(summary.total_allowed)}
+              </div>
+            </div>
 
-        <div className="summary-card missing">
-          <h3>Total Missing</h3>
-          <div className="value">{formatCurrency(totalMissing)}</div>
-          <p className="subtext">
-            {percent(totalMissing, totalAllowed)}% of allowed
+            <div className="summary-card">
+              <h3>Total Paid</h3>
+              <div className="value">
+                {formatCurrency(summary.total_paid)}
+              </div>
+            </div>
+
+            <div className="summary-card missing">
+              <h3>Total Missing</h3>
+              <div className="value">
+                {formatCurrency(summary.total_missing)}
+              </div>
+              <p className="summary-subtext">
+                {percent(
+                  summary.total_missing,
+                  summary.total_allowed
+                )}% of allowed
+              </p>
+            </div>
+          </div>
+
+          {/* Interpretation */}
+          <h2>What This Tells You</h2>
+          <p>
+            The gap between allowed and paid amounts represents adjudicated
+            revenue that was not fully reimbursed. This includes both denials
+            and underpayments. While not all missing revenue is recoverable,
+            concentration within specific payers, procedures, and patterns
+            often indicates actionable improvement opportunities.
           </p>
-        </div>
-      </div>
 
-      <div className="section-divider" />
+          {/* Guided Navigation */}
+          <h2>Where to Focus Next</h2>
 
-      {/* Key insights */}
-      <h2>Key Observations</h2>
+          <div className="guidance-grid">
+            <div
+              className="guidance-card"
+              onClick={() => navigate("/recovery-opportunities")}
+            >
+              <h3>Recovery Opportunities</h3>
+              <p>
+                Identify payer and procedure combinations with the highest
+                recovery potential, ranked by impact and confidence.
+              </p>
+            </div>
 
-      <ul className="tool-list">
-        <li>
-          Missing revenue represents{" "}
-          <strong>{percent(totalMissing, totalAllowed)}%</strong> of total
-          allowed amounts, indicating measurable payment friction beyond
-          contractual adjustments.
-        </li>
+            <div
+              className="guidance-card"
+              onClick={() => navigate("/payer-analysis")}
+            >
+              <h3>Payer Analysis</h3>
+              <p>
+                Examine how reimbursement behavior differs across Medicare,
+                Medicaid, and commercial payers.
+              </p>
+            </div>
 
-        <li>
-          Approximately{" "}
-          <strong>
-            {percent(recoverableAmount, totalMissing)}%
-          </strong>{" "}
-          of missing revenue appears potentially appeal eligible based on denial
-          behavior and payment status.
-        </li>
+            <div
+              className="guidance-card"
+              onClick={() => navigate("/claim-search")}
+            >
+              <h3>Claim-Level Review</h3>
+              <p>
+                Search and filter individual claims to validate findings,
+                investigate root causes, and support appeals.
+              </p>
+            </div>
+          </div>
 
-        <li>
-          The remaining{" "}
-          <strong>
-            {percent(nonRecoverableAmount, totalMissing)}%
-          </strong>{" "}
-          is associated with structurally unrecoverable scenarios such as timely
-          filing denials.
-        </li>
-      </ul>
-
-      <div className="section-divider" />
-
-      {/* Guidance */}
-      <h2>Recommended Areas for Review</h2>
-
-      <p>
-        Payment discrepancies are not evenly distributed. Subsequent analysis
-        should focus on payer segments and procedure codes that account for a
-        disproportionate share of missing revenue, particularly where appeal
-        eligibility is high.
-      </p>
-
-      <p>
-        Patterns observed here provide direction for deeper review in the Payer,
-        CPT, and Claim Search views, where individual behaviors and root causes
-        can be examined in detail.
-      </p>
-
-      <div className="section-divider" />
-
-      {/* Scope */}
-      <h2>Data Scope & Assumptions</h2>
-
-      <p>
-        This analysis reflects adjudicated claims only. Appeal eligibility is
-        derived from payment status and denial reason rather than explicit flags.
-        Dollar amounts represent contractual underpayments and denials, not gross
-        provider charges.
-      </p>
+          {/* Confidence tie-in */}
+          <p className="confidence-explainer">
+            Subsequent analyses apply confidence scoring to distinguish
+            high-likelihood recovery opportunities from structural write-offs,
+            helping prioritize effort where it matters most.
+          </p>
+        </>
+      )}
     </div>
   );
 }
